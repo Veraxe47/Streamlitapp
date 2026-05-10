@@ -4,6 +4,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 import plotly.figure_factory as ff
 import plotly.express as px
+from sklearn.model_selection import train_test_split
+from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline
+from sklearn.metrics import mean_absolute_error, r2_score, mean_squared_error
 
 # ─────────────────────────────────────────────
 # Page config
@@ -25,11 +31,30 @@ st.markdown(
 # ─────────────────────────────────────────────
 @st.cache_data
 def load_data():
-    df = pd.read_csv("House_Price_Dataset.csv")
-    df = df.drop(columns=["Id"])
-    return df
+    # Try different possible filenames
+    possible_names = [
+        "House Price Dataset.csv",
+        "House_Price_Dataset.csv",
+        "data/House Price Dataset.csv",
+        "House_Price_Dataset.csv",
+    ]
+    
+    for filename in possible_names:
+        try:
+            df = pd.read_csv(filename)
+            df = df.drop(columns=["Id"])
+            return df
+        except FileNotFoundError:
+            continue
+    
+    st.error("❌ Dataset file not found! Please make sure 'House Price Dataset.csv' is in the app directory.")
+    return pd.DataFrame()
 
 df = load_data()
+
+# Stop if no data loaded
+if df.empty:
+    st.stop()
 
 # ─────────────────────────────────────────────
 # 2. Raw Data Preview
@@ -272,7 +297,80 @@ st.pyplot(fig4)
 plt.close()
 
 # ─────────────────────────────────────────────
+# 10. PRICE PREDICTION (Linear Regression)
+# ─────────────────────────────────────────────
+st.header("9. 🔮 Price Prediction")
+st.markdown("Enter house features below to get a predicted price using Linear Regression.")
+
+# Prepare data for modeling
+X = df[["Area", "Bedrooms", "Bathrooms", "Floors", "YearBuilt", "Location", "Condition", "Garage"]]
+y = df["Price"]
+
+# Create preprocessing pipeline
+categorical_features = ["Location", "Condition", "Garage"]
+numeric_features = ["Area", "Bedrooms", "Bathrooms", "Floors", "YearBuilt"]
+
+preprocessor = ColumnTransformer(
+    transformers=[
+        ("num", "passthrough", numeric_features),
+        ("cat", OneHotEncoder(drop="first", sparse_output=False), categorical_features),
+    ]
+)
+
+# Create and train model
+model = Pipeline(steps=[("preprocessor", preprocessor), ("regressor", LinearRegression())])
+model.fit(X, y)
+
+# Display model performance
+y_pred = model.predict(X)
+st.subheader("📊 Model Performance")
+col_m1, col_m2, col_m3 = st.columns(3)
+col_m1.metric("R² Score", f"{r2_score(y, y_pred):.3f}")
+col_m2.metric("Mean Absolute Error (MAE)", f"${mean_absolute_error(y, y_pred):,.0f}")
+col_m3.metric("RMSE", f"${np.sqrt(mean_squared_error(y, y_pred)):,.0f}")
+
+st.caption("Note: These metrics are on training data. For production, use train/test split.")
+
+# Prediction inputs
+st.subheader("🏡 Enter House Details")
+
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    area = st.number_input("Area (sq ft)", min_value=500, max_value=5000, value=2000, step=100)
+    bedrooms = st.number_input("Bedrooms", min_value=1, max_value=5, value=3, step=1)
+    bathrooms = st.number_input("Bathrooms", min_value=1, max_value=4, value=2, step=1)
+
+with col2:
+    floors = st.number_input("Floors", min_value=1, max_value=3, value=2, step=1)
+    year_built = st.number_input("Year Built", min_value=1900, max_value=2022, value=2000, step=5)
+
+with col3:
+    location = st.selectbox("Location", df["Location"].unique())
+    condition = st.selectbox("Condition", df["Condition"].unique())
+    garage = st.selectbox("Garage", df["Garage"].unique())
+
+if st.button("💰 Predict Price", type="primary"):
+    input_data = pd.DataFrame({
+        "Area": [area],
+        "Bedrooms": [bedrooms],
+        "Bathrooms": [bathrooms],
+        "Floors": [floors],
+        "YearBuilt": [year_built],
+        "Location": [location],
+        "Condition": [condition],
+        "Garage": [garage]
+    })
+    prediction = model.predict(input_data)[0]
+    st.success(f"### 💰 Predicted Price: **${prediction:,.0f}**")
+    
+    # Show price range suggestion
+    lower = prediction * 0.85
+    upper = prediction * 1.15
+    st.info(f"📊 Estimated price range: **${lower:,.0f} — ${upper:,.0f}** (based on model confidence)")
+
+# ─────────────────────────────────────────────
 # Footer
 # ─────────────────────────────────────────────
 st.markdown("---")
-st.caption("House Price Dataset · EDA Dashboard · Built with Streamlit")
+st.caption("House Price Dataset · EDA Dashboard + Price Prediction · Built with Streamlit")
